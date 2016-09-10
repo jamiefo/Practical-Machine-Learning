@@ -1,0 +1,138 @@
+---
+title: "Practical Machine Learning Project"
+author: "jamiefo"
+date: "September 10, 2016"
+output: html_document
+---
+
+
+#Summary of Project
+
+1. I used a Random Forest for Build a model to predict the "classe" variable.  The "classe" variable has 6 levels, A-E.
+   I built the model by removing Near Zero Variance, removing highly correlated variable, and imputing the missing values
+   of the numeric variables useing their mean.
+   
+2. I used Cross Fold validation during the training set to finalize the Random Forest model
+
+3. I trained the model on the training dataset and used this model to predict the outcomes of a holdout dataset.
+    The estimated sample error on the holdout set was .9976
+
+```{r include=FALSE}
+
+library(caret)
+library(caret) 
+library(dplyr) 
+library(stats) 
+library(purrr) 
+library(corrplot)
+
+Modeling_data <- read.csv("pml-training.csv", header = TRUE) 
+Testing_data <- read.csv("pml-testing.csv", header = TRUE)
+
+```
+
+
+#Split data into Training and Validation
+
+
+```{r }
+TrainingRows <- createDataPartition(Modeling_data$classe, p=.7, list = FALSE)
+
+Training_data <- Modeling_data[TrainingRows,]
+Validation_data <- Modeling_data[-TrainingRows,]
+
+```
+
+
+#Generate Barplot of Target Variable
+
+```{r }
+
+barplot(table(Training_data$classe))
+
+```
+
+#Seperate out the types of variables for exploratory analysis
+
+```{r}
+
+Factor_vars <- Training_data[,c("classe", "user_name", "new_window")]
+
+Numeric_vars <- Training_data[,!(names(Training_data) %in% c("classe", "user_name", "new_window", "X", 
+                                                             "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp"))]
+
+```
+
+
+# Get rid of Near Zero Variance variables
+# Impute Missing values with the mean
+```{r}
+NZV <- nearZeroVar(Numeric_vars)
+Numeric_exclude_NZV <- Numeric_vars[,-NZV]
+
+
+#Impute Missing Numeric values with mean
+Numeric_Minus_Missing <- Numeric_exclude_NZV[ , sapply(Numeric_exclude_NZV, function(x) !mean(is.na(x))>.5)]
+
+impute.mean <- function(x) { 
+      if (all (is.na(x))) return(rep(NA,length(x))) 
+       x 
+    } 
+
+Numeric_Imputed <- dmap_if(Numeric_Minus_Missing, is.numeric, impute.mean) 
+
+```
+
+
+#Find Correlations on Numeric Variables, Remove highly correlated variables
+
+```{r}
+Correlations <- cor(Numeric_Imputed)
+
+
+Remove_high_Correlations <- findCorrelation(Correlations, cutoff = 0.75)
+Numeric_Imputed_no_Corr <- Numeric_Imputed[,-Remove_high_Correlations]
+
+#Print the Correlation Plot again
+Correlations2 <- cor(Numeric_Imputed_no_Corr)
+corrplot(Correlations2)
+```
+
+
+#Combine the data once again, Build Random Forest Model
+```{r}
+All_data <- cbind(Numeric_Imputed_no_Corr, Factor_vars)
+
+
+#Build Random Forest model and K-nearest neighbor model using Cross Validation
+ControlObject <- trainControl(method = "cv",
+                              number = 3)
+
+
+RandomForest_Fit <- train(classe~.,
+                          data = All_data,
+                          method = "rf",
+                          tuneLength = 5,
+                          ntrees = 100,
+                          importance = TRUE,
+                          trControl = ControlObject)
+
+
+Variable_Importance <- varImp(RandomForest_Fit)
+Variable_Importance
+
+plot(RandomForest_Fit)
+```
+
+
+#Make predictions on the Validation Set
+```{r}
+
+RandomForest_pred <- predict(RandomForest_Fit, Validation_data)
+confusionMatrix(RandomForest_pred,Validation_data$classe)
+
+```
+    
+
+
+
